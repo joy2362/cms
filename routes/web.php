@@ -23,7 +23,7 @@ Route::get('/', function () {
 Route::get('/clear', function () {
     \Illuminate\Support\Facades\Artisan::call('cache:clear');
     return \Illuminate\Support\Facades\Artisan::output();
-});
+})->name('cache.clear');
 
 Route::get('/test', function () {
     $routes = Route::getRoutes();

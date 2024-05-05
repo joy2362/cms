@@ -1,6 +1,6 @@
 <?php
 //@abdullah zahid joy
-namespace {{ namespace }};
+namespace $namespace$;
 
 use App\Http\Controllers\Base\BaseController;
 use Illuminate\Http\Request;
@@ -10,19 +10,19 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 
-class {{ class }} extends BaseController
+class $class$ extends BaseController
 {
 
     /**
      * @var string
      */
-    private string $modelName = "";
+    private string $modelName = "$model$";
 
 
      /**
       * @var array|string[]
       */
-      private array $files = [];
+      private array $files = $files$;
 
     /**
      * Display a listing of the resource.
@@ -34,7 +34,7 @@ class {{ class }} extends BaseController
         if ($request->ajax()) {
             return crud::getAll($this->modelName,'datatable',$this->files);
         }
-        return view('admin.pages.'. $this->modelName .'.index');
+        return view('admin.pages.Modules.'. $this->modelName .'.index');
     }
 
     /**

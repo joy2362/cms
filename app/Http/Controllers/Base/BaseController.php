@@ -3,10 +3,7 @@
 namespace App\Http\Controllers\Base;
 
 use App\Http\Controllers\Controller;
-use App\Models\System\BackendMenu;
-use App\Models\System\Setting;
 use Illuminate\Support\Facades\App;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\View;
 
@@ -16,7 +13,6 @@ class BaseController extends Controller
     {
         $systemSetting = App::make("SystemSetting");
         $menus = App::make("BackendMenu");
-        //dd($menus);
         // Sharing is caring
         View::share(['menus' => $menus, 'systemSetting'=> $systemSetting ]);
     }

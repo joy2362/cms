@@ -25,7 +25,6 @@ class AppServiceProvider extends ServiceProvider
             });
         });
         if(request()->is('admin/*')){
-
             $this->app->singleton('BackendMenu', function(){
                 return Cache::rememberForever("backendMenu",function(){
                    return BackendMenu::with('subMenu')->orderBy('sorting','asc')->whereNull('parent_id')->get();

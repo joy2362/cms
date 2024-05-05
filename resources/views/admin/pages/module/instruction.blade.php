@@ -36,7 +36,12 @@
                                             </li>
                                             <li >
                                                 <p class="text-primary fw-bold "><span style="color: green"><i class="fa-solid fa-check-double"></i> </span> View</p>
-                                                <p> View file locate in  <span class="text-success fw-bold">resources/views/admin/pages/{{ucfirst($name)}}/index.blade.php </span> </p>
+                                                <p> View file locate in  <span class="text-success fw-bold">resources/views/admin/pages/Modules/{{ucfirst($name)}}/index.blade.php </span> </p>
+                                            </li>
+                                            <li >
+                                                <p class="text-primary fw-bold "><span style="color: green"><i class="fa-solid fa-check-double"></i> </span> Udpate change</p>
+                                                <p> Visit to <a href="{{ route('system.update') }}" target="_blank" style="color: green" >/admin/system-update</a> </p>
+                                                <p> then <a href="{{ route('cache.clear') }}" target="_blank" style="color: green">/clear</a> </p>
                                             </li>
                                         </ul>
                                     </div>

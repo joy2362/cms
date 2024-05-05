@@ -2,37 +2,19 @@
 //@abdullah zahid joy
 namespace App\Helpers;
 
-use App\Helpers\Trait\CreateFrontEnd;
-use Illuminate\Filesystem\Filesystem;
-use Illuminate\Support\Facades\App;
-use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PharIo\Version\Exception;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\App;
+use App\Helpers\Trait\GenerateFileFromStub;
+use Illuminate\Filesystem\Filesystem;
 
 /**
  *
  */
 class Module
 {
-    use CreateFrontEnd;
-
-    /**
-     * @param $string
-     * @return string
-     */
-    public static function lcFirst($string): string
-    {
-        return lcfirst($string);
-    }
-
-    /**
-     * @param $string
-     * @return string
-     */
-    public static function ucFirst($string): string
-    {
-        return ucfirst($string);
-    }
+    use GenerateFileFromStub;
 
     /**
      * @param string $name
@@ -45,53 +27,29 @@ class Module
         $dbField = self::makeTableField($field );
         $formBuilder = self::makeInputField($field);
         $indexData = self::makeIndexData($field);
+        
+        //create model
+        $model = self::generateModel($name,$indexData['files']);
+        if(!$model) return false;
 
-        //create model and migration and model
-       $migration = self::generateModelAndMigration($name,$indexData['files']);
-       if(!$migration){
-           return false;
-       }
-
-       //add database field
-        $generateSchema = self::generateSchema($migration, $dbField);
-       if(!$generateSchema){
-           return false;
-       }
-
+        //create migration
+        $migration = self::generateMigration($name, $dbField);
+        if(!$migration) return false;
+       
         //generate view file
-        $generateFrontend = self::generateFrontend($name , $formBuilder, $indexData);
-        if(!$generateFrontend){
-            return false;
-        }
+        $view = self::generateFrontend($name , $formBuilder, $indexData);
+        if(!$view) return false;
 
         //create controller
-        $generateController = self::generateController($name , $indexData['files']);
-
-        if(!$generateController){
-            return false;
-        }
-
+        $controller = self::generateController($name , $indexData['files']);
+        if(!$controller) return false;
+        
         //add route name in backend.php
         $route = self::addRoute($name);
-
-        if(!$route){
-            return false;
-        }else{
-            //import controller name
-            self::importControllerInRoute($name);
-        }
+        if(!$route) return false;
 
         //save module recode
-        return self::storeModuleInfo( $name , $migration );
-    }
-
-    /**
-     * @param $name
-     * @return bool
-     */
-    public static function checkFile($name): bool
-    {
-       return file_exists($name);
+       return self::storeModuleInfo( $name , $migration );
     }
 
     /**
@@ -99,16 +57,13 @@ class Module
      * @param $field
      * @return bool|int
      */
-    public static function generateSchema($db , $field): bool|int
+    public static function generateMigration($name , $field): bool|int
     {
-        if(!self::checkFile(base_path().'\database\migrations\\' . $db.".php")){
-            return false;
-        }else{
-            $search = "//add your columns name from here";
-            $replace = $search. "\n \t \t \t".  $field;
-
-            return self::addFileContent($search,$replace,base_path().'\database\migrations\\' . $db.".php");
-        }
+        $path = base_path("database/migrations/".date('Y_m_d_His')."_create_".lcfirst($name)."_table.php");
+        if(self::checkFile($path)) return false;
+        Self::makeDirectory(dirname($path));
+        $contents = self::generateStubContents(self::getStubPath("migration"), self::getMigrationStubVariables($name , $field));
+        return self::createFile($path, $contents) ?  $path : false;
     }
 
     /**
@@ -116,32 +71,119 @@ class Module
      * @param $files
      * @return array|bool|string
      */
-    public static function generateModelAndMigration($name,$files): array|bool|string
+    public static function generateModel($name,$attributes): array|bool|string
     {
         try {
-            if(!self::checkFile(app_path('Models/' . ucfirst($name) . '.php'))){
-                //create model and migration file
-                Artisan::call('make:model',['name'=> self::ucFirst($name), '-m' => 'default']);
-                $result = explode("\r\n",Artisan::output());
-
-                if( $result[0] != "Model created successfully."){
-                    return false;
-                }
-
-                $fileAttribute = self::makeFileAttributeForModel($files);
-
-                $search = '//add your model content here';
-                $replace = $fileAttribute. "\n".  $search;
-                self::addFileContent($search, $replace, app_path('Models/' . ucfirst($name) . '.php'));
-
-                return str_replace("Created Migration: ", "", $result[1] );
-            }else{
-                return false;
-            }
+            $path = app_path("Models/".ucfirst($name).".php");
+            if(self::checkFile($path)) return false;
+            Self::makeDirectory(dirname($path));
+            $fileAttributes = self::makeFileAttributeForModel($attributes);
+            $contents = self::generateStubContents(self::getStubPath("model"), self::getModelStubVariables(ucfirst($name) , $fileAttributes));
+            return self::createFile($path, $contents) ?  $path : false;
         }catch (Exception $ex){
             return $ex;
         }
+    }
 
+    /**
+     * @param $name
+     * @param array $fileData
+     * @return Exception|\Exception|string|bool
+     */
+    public static function generateController($name, array $fileData = []): Exception|\Exception|string|bool
+    {
+        try {
+            $path = app_path("Http/Controllers/Backend/Modules/".ucfirst($name)."Controller.php");
+            if (self::checkFile($path)) return false;
+            Self::makeDirectory(dirname($path));
+            $contents = self::generateStubContents(self::getStubPath("controller"), self::getControllerStubVariables(ucfirst($name) , json_encode($fileData)));
+            return self::createFile($path, $contents) ?  $path : false;
+        }catch (Exception $ex){
+            return $ex;
+        }
+    }
+
+     /**
+     * @param $name
+     * @param $formBuilder
+     * @param $indexData
+     * @return string|bool
+     */
+    public static function generateFrontend($name , $formBuilder , $indexData): string|bool
+    {
+        $path = base_path("resources/views/admin/pages/Modules/" . ucfirst($name) . "/index.blade.php");
+        if(self::checkFile($path)) return false;
+        Self::makeDirectory(dirname($path));
+        $contents = self::generateStubContents(self::getStubPath("view"), self::getViewStubVariables(lcFirst($name),ucFirst($name),$formBuilder, $indexData));
+        return self::createFile($path, $contents) ?  $path : false;
+    }
+
+    public static function getMigrationStubVariables($name , $fields): array
+    {
+       return [
+            'table' => Str::snake(Str::pluralStudly(class_basename($name))),
+            'fields' => $fields
+        ];
+    }
+
+    public static function getControllerStubVariables($name , $files = ""): array
+    {
+        $nameSpace = app()->getNamespace()."Http\Controllers\Backend\Modules";
+        $names = explode('/', $name);
+        $className = end($names)."Controller";
+        array_pop($names);
+        if (!empty($names)) {
+            foreach ($names as $name) {
+                $nameSpace .= "\{$name}";
+            }
+        }
+        return [
+            'namespace' => $nameSpace,
+            'class' => $className,
+            'model' => ucfirst($name),
+            'files' => $files
+        ];
+    }
+
+    public static function getModelStubVariables($name , $attributes = ""): array
+    {
+        $nameSpace = app()->getNamespace()."Models";
+        $names = explode('/', $name);
+        $className = end($names);
+        array_pop($names);
+        if (!empty($names)) {
+            foreach ($names as $name) {
+                $nameSpace .= "\{$name}";
+            }
+        }
+        return [
+            'namespace' => $nameSpace,
+            'class' => $className,
+            'fileAttributes' => $attributes
+        ];
+    }
+
+    public static function getViewStubVariables($name,$model,$formBuilder,$indexData): array
+    {
+        return [
+            'NAME' => $name,
+            'MODEL' => $model,
+            'createForm' => $formBuilder["createInputField"],
+            'updateForm' => $formBuilder["updateInputField"],
+            'indexField' => $indexData['indexField'],
+            'indexTable' => $indexData['indexTable'],
+            'editField' => $indexData['editField'],
+            'TEXTAREA' => json_encode($indexData['textArea']),
+        ];
+    }
+
+    public static function generateStubContents($stub, $stubVariables = [], $separator = '$'): array|bool|string
+    {
+        $contents = file_get_contents($stub);
+        foreach ($stubVariables as $search => $replace) {
+            $contents = str_replace($separator . $search . $separator, $replace, $contents);
+        }
+        return $contents;
     }
 
     /**
@@ -152,48 +194,11 @@ class Module
         $attribute = "";
         if (!empty($files)){
             foreach ($files as $file){
-                $attribute .= "public function get".$file."Attribute(\$value)\n";
-                $attribute .= "\t{\n";
-                $attribute .= "\t \t if (!empty(\$value)) {\n";
-                $attribute .= "\t \t \t return Storage::url(\$value) ;\n";
-                $attribute .= "\t \t }\n";
-                $attribute .= " \t return null;\n";
-                $attribute .= " }\n";
-
+                $attribute .= "public function get".ucfirst($file)."Attribute(\$value)\n\t{\n";
+                $attribute .= "\t \t return !empty(\$value) ? Storage::url(\$value) : null ;\n\t}\n";
             }
         }
         return $attribute;
-    }
-    /**
-     * @param $name
-     * @param array $fileData
-     * @return bool|\Exception|Exception
-     */
-    public static function generateController($name, array $fileData = []): Exception|\Exception|bool
-    {
-        try {
-            if (!self::checkFile(app_path('Http/Controllers/Backend/' . ucfirst($name) . 'Controller.php'))) {
-                $controller = "Backend/" . self::ucFirst($name) . "Controller";
-                Artisan::call('make:controller', ['name' => $controller, '--type' => "custom"]);
-                $result = explode("\r\n", Artisan::output());
-
-                $files = 'private array $files  = ';
-                $files .= json_encode($fileData);
-                $files .= ";";
-                $modelName = 'private string $modelName = "'.ucfirst($name).'";';
-
-                $searchFiles = 'private array $files = [];';
-                $searchModelName = 'private string $modelName = "";';
-
-                self::addFileContent($searchFiles, $files, app_path('Http/Controllers/Backend/' . ucfirst($name) . 'Controller.php'));
-                self::addFileContent($searchModelName, $modelName, app_path('Http/Controllers/Backend/' . ucfirst($name) . 'Controller.php'));
-                return $result[0] == "Controller created successfully.";
-            } else {
-                return false;
-            }
-        }catch (Exception $ex){
-            return $ex;
-        }
     }
 
     /**
@@ -204,53 +209,12 @@ class Module
     public static function storeModuleInfo($name , $migration): bool
     {
        return DB::table('modules')->insert([
-            'name' => self::ucFirst($name),
-            'controller' => self::ucFirst($name)."Controller",
-            'route' => self::lcFirst($name).".index",
+            'name' => ucFirst($name),
+            'controller' => ucFirst($name)."Controller",
+            'route' => lcFirst($name).".index",
             'migration' => $migration,
         ]);
     }
-
-    /**
-     * @param $name
-     * @param $formBuilder
-     * @param $indexData
-     * @return bool
-     */
-    public static function generateFrontend($name , $formBuilder , $indexData): bool
-    {
-        $module = new Module();
-        $file = new Filesystem();
-
-        $front_end = $module->getSourceFrontEndPath(self::ucFirst($name));
-
-        $module->makeDirectory( dirname( $front_end ) );
-
-        $contents =  $module->getSourceFrontEnd(self::lcFirst($name),self::ucFirst($name),$formBuilder, $indexData);
-
-        if (!$file->exists($contents)) {
-            $file->put($front_end, $contents);
-            return true;
-        }else{
-            return false;
-        }
-    }
-
-    /**
-     * Build the directory if necessary.
-     *
-     * @param  $path
-     * @return string
-     */
-    protected static function makeDirectory($path): string
-    {
-        $file = new Filesystem();
-        if (! $file->isDirectory($path)) {
-            $file->makeDirectory($path, 0777, true, true);
-        }
-        return $path;
-    }
-
 
     /**
      * @param $name
@@ -258,17 +222,9 @@ class Module
      */
     public static function addRoute($name): bool|int
     {
-        $search = "//module routes";
-        $url = self::lcFirst($name);
-
-        $controller = self::ucFirst($name)."Controller";
-
-        $route = "Route::resource('". $url ."', ".$controller."::Class,['names'=>'".self::ucFirst($name)."']);";
-
-        $replace = $search. "\n \t".  $route;
-
-        return self::addFileContent($search,$replace,base_path('routes/Backend.php'));
-
+        $search = "Route::group(['middleware'=>'permission:admin'],function(){";
+        $route = "Route::resource('". lcFirst($name) ."', ".ucFirst($name)."Controller::Class,['names'=>'".ucFirst($name)."']);";
+        return self::addFileContent($search,$search. "\n \t".  $route,base_path('routes/Backend.php')) ? self::importControllerInRoute($name) : false;
     }
 
     /**
@@ -278,13 +234,8 @@ class Module
     public static function importControllerInRoute($name): bool|int
     {
         $search = "use Illuminate\Support\Facades\Route;";
-
-        $controller = self::ucFirst($name)."Controller";
-        $import = 'use App\Http\Controllers\Backend\\'.$controller.";";
-
-        $replace = $search. "\n".  $import;
-
-       return self::addFileContent($search,$replace,base_path('routes/Backend.php'));
+        $import = 'use App\Http\Controllers\Backend\\Modules\\'.ucFirst($name)."Controller;";
+        return self::addFileContent($search,$search. "\n".  $import,base_path('routes/Backend.php'));
     }
 
     /**
@@ -422,7 +373,7 @@ class Module
         for ($key = 0 ; $key < count($field["inputType"]); $key++){
             $type = $field['inputType'][$key];
             $name = $field['name'][$key];
-            $title = self::ucFirst($field['name'][$key]);
+            $title = ucFirst($field['name'][$key]);
             $condition = "";
             if(!empty($field['is_nullable'])){
                 if($field['is_nullable'][$key] == "no" ){
@@ -505,7 +456,7 @@ class Module
             $field .="\t<option selected>Choose...</option>\n";
             if(count($enums) > 0){
                 foreach ($enums as $enum){
-                    $title = self::ucFirst($enum);
+                    $title = ucFirst($enum);
                     $field .="\t <option value=\"{$enum}\">{$title}</option>\n";
                 }
             }
@@ -526,7 +477,7 @@ class Module
             $field .="\t<br>\n";
             if(count($enums) > 0){
                 foreach ($enums as $enum){
-                    $title = self::ucFirst($enum);
+                    $title = ucFirst($enum);
                     if($formType == "create"){
                         $field .="\t <input class=\"form-check-input\" type=\"{$type}\" name=\"{$name}\" id=\"{$enum}\" value=\"{$enum}\">\n";
                         $field .="\t  <label class=\"form-check-label\" for=\"{$enum}\">{$title}</label>\n";
@@ -571,7 +522,7 @@ class Module
         $textArea = [];
         for ($key = 0 ; $key < count($field["type"]); $key++){
             $name = $field['name'][$key];
-            $title = self::ucFirst($field['name'][$key]);
+            $title = ucFirst($field['name'][$key]);
             if($field['inputType'][$key] == 'file'){
                 $indexField .= "{data:'{$name}',name:'{$title}'}, \n";
                 $indexTable .= "<th>{$title}</th> \n";
